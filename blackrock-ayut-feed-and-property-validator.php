@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Bayut Audit Portal Shortcode
  * Description: Parses XML feed dynamically and displays Bayut property audit table.
- * Version: 1.2
+ * Version: 1.4
  */
 
 if (!defined('ABSPATH')) {
