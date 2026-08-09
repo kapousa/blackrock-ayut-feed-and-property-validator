@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
- * Description: Parses live XML feed dynamically and displays Bayut property audit table.
- * Version: 1.5
+ * Description: Parses live XML feed dynamically and displays Bayut property audit table with dashboard navigation and CSV export.
+ * Version: 1.6.0
  */
 
 if (!defined('ABSPATH')) {
@@ -21,13 +21,43 @@ $myUpdateChecker = PucFactory::buildUpdateChecker(
 
 $myUpdateChecker->setBranch('master');
 
-function br_render_bayut_audit_page() {
-    ob_start();
+// 1. CSV Export Handler
+add_action('template_redirect', 'handle_bayut_validator_export', 1);
+function handle_bayut_validator_export() {
+    if (isset($_GET['action']) && $_GET['action'] === 'export_bayut_validator') {
+        if (!current_user_can('manage_options') && !current_user_can('houzez_manager')) {
+            wp_die('Unauthorized.');
+        }
 
-    // Dynamically fetch live feed XML
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename=bayut_validator_report_'.date('Y-m-d').'.csv');
+        $output = fopen('php://output', 'w');
+        fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'City', 'Locality', 'Bayut Status', 'WP Link'));
+
+        $properties = br_fetch_and_parse_bayut_feed();
+        foreach ($properties as $item) {
+            fputcsv($output, array(
+                $item['ref_no'],
+                $item['title'],
+                $item['type'],
+                $item['city'],
+                $item['locality'],
+                $item['status'],
+                $item['permalink']
+            ));
+        }
+
+        fclose($output);
+        exit;
+    }
+}
+
+// Helper to parse live XML feed
+function br_fetch_and_parse_bayut_feed() {
     $feed_url = site_url('/bayut-feed.xml');
     $response = wp_remote_get($feed_url, array('timeout' => 15, 'sslverify' => false));
-
     $properties = array();
 
     if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
@@ -39,7 +69,6 @@ function br_render_bayut_audit_page() {
                 foreach ($xml->Property as $prop) {
                     $ref_no = trim((string)$prop->Property_Ref_No);
 
-                    // Search WP Post including pending and draft statuses
                     $wp_permalink = '#';
                     $wp_posts = get_posts(array(
                         'post_type'   => 'property',
@@ -66,6 +95,15 @@ function br_render_bayut_audit_page() {
             }
         }
     }
+    return $properties;
+}
+
+// 2. Render Page
+function br_render_bayut_audit_page() {
+    $export_url = add_query_arg(['action' => 'export_bayut_validator'], home_url('/'));
+    $properties = br_fetch_and_parse_bayut_feed();
+
+    ob_start();
     ?>
     <style>
         .bayut-audit-table {
@@ -124,50 +162,69 @@ function br_render_bayut_audit_page() {
         }
     </style>
 
-    <table class="bayut-audit-table">
-        <thead>
-            <tr>
-                <th>Ref No</th>
-                <th>Property Title</th>
-                <th>Type</th>
-                <th>City</th>
-                <th>Locality</th>
-                <th>Bayut Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (!empty($properties)) : ?>
-                <?php foreach ($properties as $item) : ?>
-                    <tr>
-                        <td><strong><?php echo esc_html($item['ref_no']); ?></strong></td>
-                        <td>
-                            <?php if ($item['permalink'] !== '#') : ?>
-                                <a href="<?php echo esc_url($item['permalink']); ?>" class="bayut-title-link">
-                                    <?php echo esc_html($item['title']); ?>
-                                </a>
+    <div class="user-dashboard-right">
+        <div class="dashboard-content-area">
+            <div class="dashboard-area">
+                <div class="dashboard-header clearfix" style="margin-bottom: 30px;">
+                    <div class="float-left">
+                        <h2 class="title">Bayut Feed Validator</h2>
+                    </div>
+                    <div class="float-right">
+                        <!-- Navigation & Export Buttons -->
+                        <a href="/user-dashboard-2/" class="btn btn-primary" style="margin-right: 10px;">Back To Dashboard</a>
+                        <a href="<?php echo esc_url($export_url); ?>" class="btn btn-success">Export CSV</a>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="bayut-audit-table">
+                        <thead>
+                            <tr>
+                                <th>Ref No</th>
+                                <th>Property Title</th>
+                                <th>Type</th>
+                                <th>City</th>
+                                <th>Locality</th>
+                                <th>Bayut Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (!empty($properties)) : ?>
+                                <?php foreach ($properties as $item) : ?>
+                                    <tr>
+                                        <td><strong><?php echo esc_html($item['ref_no']); ?></strong></td>
+                                        <td>
+                                            <?php if ($item['permalink'] !== '#') : ?>
+                                                <a href="<?php echo esc_url($item['permalink']); ?>" class="bayut-title-link">
+                                                    <?php echo esc_html($item['title']); ?>
+                                                </a>
+                                            <?php else : ?>
+                                                <?php echo esc_html($item['title']); ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?php echo esc_html($item['type']); ?></td>
+                                        <td><?php echo esc_html($item['city']); ?></td>
+                                        <td><?php echo esc_html($item['locality']); ?></td>
+                                        <td>
+                                            <?php if ($item['status'] === 'PASS') : ?>
+                                                <span class="status-badge-pass">PASS</span>
+                                            <?php else : ?>
+                                                <span class="status-badge-fail">FAIL</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
                             <?php else : ?>
-                                <?php echo esc_html($item['title']); ?>
+                                <tr>
+                                    <td colspan="6" style="text-align: center; padding: 20px;">No properties found in feed.</td>
+                                </tr>
                             <?php endif; ?>
-                        </td>
-                        <td><?php echo esc_html($item['type']); ?></td>
-                        <td><?php echo esc_html($item['city']); ?></td>
-                        <td><?php echo esc_html($item['locality']); ?></td>
-                        <td>
-                            <?php if ($item['status'] === 'PASS') : ?>
-                                <span class="status-badge-pass">PASS</span>
-                            <?php else : ?>
-                                <span class="status-badge-fail">FAIL</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php else : ?>
-                <tr>
-                    <td colspan="6" style="text-align: center; padding: 20px;">No properties found in feed.</td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <?php
     return ob_get_clean();
