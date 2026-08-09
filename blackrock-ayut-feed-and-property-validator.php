@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Black Rock - Bayut Feed & Property Validator
  * Description: Audits Houzez properties against Bayut integration rules and highlights non-matching or erroneous listings.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: Black Rock Real Estate
  */
 
