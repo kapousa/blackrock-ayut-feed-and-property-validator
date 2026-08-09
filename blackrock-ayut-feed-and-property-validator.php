@@ -1,13 +1,13 @@
 <?php
 /**
- * Plugin Name: Black Rock - Bayut Feed & Property Validator
- * Description: Audits Houzez properties against Bayut integration rules and highlights non-matching or erroneous listings.
- * Version: 1.1.1
+ * Plugin Name: Bayut Audit & Taxonomy Validator
+ * Description: Renders Houzez properties in a custom table layout and audits XML feeds against Bayut taxonomy specifications.
+ * Version: 1.2
  * Author: Black Rock Real Estate
  */
 
 if (!defined('ABSPATH')) {
-    exit;
+    exit; // Exit if accessed directly
 }
 
 // Initialize Plugin Update Checker from GitHub
@@ -22,160 +22,107 @@ $myUpdateChecker = PucFactory::buildUpdateChecker(
 
 $myUpdateChecker->setBranch('master');
 
-// 1. Register Shortcode for Frontend Page
-add_shortcode('bayut_audit_dashboard', 'br_render_bayut_audit_page');
 
-// 2. Add Admin Menu Item
-add_action('admin_menu', 'br_bayut_validator_menu');
-function br_bayut_validator_menu() {
-    add_submenu_page(
-        'edit.php?post_type=property',
-        'Bayut Match Audit',
-        'Bayut Match Audit',
-        'manage_options',
-        'bayut-match-audit',
-        'br_render_bayut_audit_page'
-    );
-}
-
-// 3. Validation Logic
-function br_validate_property_for_bayut($post_id) {
-    $errors = array();
-
-    $price  = get_post_meta($post_id, 'favouriting_property_price', true);
-    $size   = get_post_meta($post_id, 'favouriting_property_size', true);
-
-    $cities     = wp_get_post_terms($post_id, 'property_city', array('fields' => 'names'));
-    $localities = wp_get_post_terms($post_id, 'property_area', array('fields' => 'names'));
-
-    $city     = !empty($cities) ? $cities[0] : '';
-    $locality = !empty($localities) ? $localities[0] : '';
-
-    if (empty($price) || floatval($price) <= 0) {
-        $errors[] = 'Invalid or missing price.';
-    }
-    if (empty($size)) {
-        $errors[] = 'Missing property area/size.';
-    }
-
-    if (strtolower(trim($city)) === 'al ain' && stristr($locality, 'reem')) {
-        $errors[] = 'Location Conflict: City is "Al Ain" but Locality is "Al Reem Island".';
-    }
-
-    if (in_array(strtolower(trim($locality)), array('al reem', 'reem', 'abu dhabi', 'dubai'))) {
-        $errors[] = 'Generic Locality: "' . esc_html($locality) . '" needs a specific sub-community or project node.';
-    }
-
-    if (empty($city) || empty($locality)) {
-        $errors[] = 'Missing taxonomy mapping (City or Area is blank).';
-    }
-
-    return $errors;
-}
-
-// 4. Render Dashboard Table
+/**
+ * Shortcode handler to render property audit portal.
+ * Usage: [bayut_audit_portal]
+ */
 function br_render_bayut_audit_page() {
-    // Restrict access to logged-in users only
-    if (!is_user_logged_in()) {
-        return '<p>Please <a href="' . wp_login_url(get_permalink()) . '">log in</a> to view the Bayut Audit Dashboard.</p>';
-    }
-
     ob_start();
 
+    // Query parameters engineered to bypass language/theme filters and fetch all statuses
     $args = array(
-        'post_type'        => 'property',
-        'post_status'      => 'publish',
-        'posts_per_page'   => -1,
-        'suppress_filters' => true, // Prevents theme & multi-language plugins from altering the query
+        'post_type'           => array('property', 'houzez_property'), // Auto-detects default CPT & Houzez CPT
+        'post_status'         => array('publish', 'draft', 'pending', 'private'),
+        'posts_per_page'      => -1,
+        'ignore_sticky_posts' => true,
+        'suppress_filters'    => true, // Essential: bypasses WPML, Polylang, and theme query hooks
+        'no_found_rows'       => true,
     );
 
     $query = new WP_Query($args);
+
+    if (!$query->have_posts()) {
+        echo '<div style="padding: 15px; background: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px;">';
+        echo '<strong>Notice:</strong> No property listings were found in the database. Please verify your Custom Post Type slug or post status.';
+        echo '</div>';
+        return ob_get_clean();
+    }
+
     ?>
-    <div class="bayut-audit-wrap" style="padding: 20px 0; font-family: sans-serif;">
-        <h2>Bayut Integration Audit Dashboard</h2>
-        <p>Review active properties for location hierarchy conflicts and missing metadata before feed processing.</p>
+    <style>
+        .bayut-audit-wrapper { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px 0; }
+        .bayut-audit-table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .bayut-audit-table th { background: #1e293b; color: #fff; padding: 12px; text-align: left; font-size: 14px; }
+        .bayut-audit-table td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155; }
+        .bayut-audit-table tr:hover { background-color: #f8fafc; }
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+        .status-pass { background: #dcfce7; color: #166534; }
+        .status-fail { background: #fee2e2; color: #991b1b; }
+        .bayut-fix-note { font-size: 11px; color: #64748b; margin-top: 4px; }
+    </style>
 
-        <style>
-            .bayut-audit-table { width: 100%; border-collapse: collapse; margin-top: 15px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-            .bayut-audit-table th, .bayut-audit-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
-            .bayut-audit-table th { background-color: #1d2327; color: #fff; font-size: 14px; }
-            .row-pass { background-color: #f0fdf4; }
-            .row-fail { background-color: #fef2f2; }
-            .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; text-transform: uppercase; }
-            .badge-pass { background-color: #dcfce7; color: #166534; }
-            .badge-fail { background-color: #fee2e2; color: #991b1b; }
-            .error-list { margin: 0; padding-left: 18px; color: #991b1b; font-size: 12px; }
-            .btn-edit { display: inline-block; padding: 6px 12px; background: #2271b1; color: #fff; border-radius: 4px; text-decoration: none; font-size: 12px; }
-            .btn-edit:hover { background: #135e96; color: #fff; }
-        </style>
-
+    <div class="bayut-audit-wrapper">
         <table class="bayut-audit-table">
             <thead>
                 <tr>
-                    <th>Ref ID</th>
+                    <th>Ref No</th>
                     <th>Property Title</th>
+                    <th>Type</th>
                     <th>City</th>
-                    <th>Locality / Area</th>
-                    <th>Status</th>
-                    <th>Validation Details</th>
-                    <th>Action</th>
+                    <th>Locality</th>
+                    <th>Bayut Status</th>
                 </tr>
             </thead>
             <tbody>
                 <?php
-                if ($query->have_posts()) :
-                    while ($query->have_posts()) : $query->the_post();
-                        $post_id   = get_the_ID();
-                        $title     = get_the_title();
-                        $errors    = br_validate_property_for_bayut($post_id);
-                        $is_valid  = empty($errors);
+                while ($query->have_posts()) : $query->the_post();
+                    $post_id   = get_the_ID();
+                    $ref_no    = get_post_meta($post_id, 'fave_property_id', true) ?: $post_id;
+                    $prop_type = get_post_meta($post_id, 'fave_property_type', true) ?: 'Apartment';
+                    $city      = get_post_meta($post_id, 'fave_property_city', true) ?: 'N/A';
+                    $locality  = get_post_meta($post_id, 'fave_property_area', true) ?: 'N/A';
 
-                        $cities     = wp_get_post_terms($post_id, 'property_city', array('fields' => 'names'));
-                        $localities = wp_get_post_terms($post_id, 'property_area', array('fields' => 'names'));
+                    // Basic Bayut Taxonomy Rules Check
+                    $is_valid = true;
+                    $issue_msg = '';
 
-                        $city_name     = !empty($cities) ? $cities[0] : '—';
-                        $locality_name = !empty($localities) ? $localities[0] : '—';
-                        $edit_url      = get_edit_post_link($post_id);
-                        ?>
-                        <tr class="<?php echo $is_valid ? 'row-pass' : 'row-fail'; ?>">
-                            <td><strong><?php echo esc_html($post_id); ?></strong></td>
-                            <td><strong><a href="<?php echo esc_url(get_permalink($post_id)); ?>" target="_blank"><?php echo esc_html($title); ?></a></strong></td>
-                            <td><?php echo esc_html($city_name); ?></td>
-                            <td><?php echo esc_html($locality_name); ?></td>
-                            <td>
-                                <?php if ($is_valid) : ?>
-                                    <span class="badge badge-pass">Match 🟢</span>
-                                <?php else : ?>
-                                    <span class="badge badge-fail">Mismatch 🔴</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if ($is_valid) : ?>
-                                    <span style="color: #166534; font-size: 12px;">Passed location & feed rules.</span>
-                                <?php else : ?>
-                                    <ul class="error-list">
-                                        <?php foreach ($errors as $err) : ?>
-                                            <li><?php echo esc_html($err); ?></li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <a href="<?php echo esc_url($edit_url); ?>" class="btn-edit" target="_blank">Edit Listing</a>
-                            </td>
-                        </tr>
-                    <?php
-                    endwhile;
-                    wp_reset_postdata();
-                else :
-                    ?>
+                    if (strcasecmp($city, 'Al Reem Island') === 0) {
+                        $is_valid = false;
+                        $issue_msg = 'City cannot be "Al Reem Island". Change City to "Abu Dhabi".';
+                    } elseif (strcasecmp($city, 'Al Ain') === 0 && strcasecmp($locality, 'Al Reem Island') === 0) {
+                        $is_valid = false;
+                        $issue_msg = 'Location Mismatch: Reem Island is in Abu Dhabi, not Al Ain.';
+                    } elseif (strcasecmp($locality, 'Al Reem') === 0) {
+                        $is_valid = false;
+                        $issue_msg = 'Locality must be "Al Reem Island".';
+                    }
+                ?>
                     <tr>
-                        <td colspan="7">No properties found.</td>
+                        <td><strong><?php echo esc_html($ref_no); ?></strong></td>
+                        <td>
+                            <a href="<?php the_permalink(); ?>" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 500;">
+                                <?php the_title(); ?>
+                            </a>
+                        </td>
+                        <td><?php echo esc_html($prop_type); ?></td>
+                        <td><?php echo esc_html($city); ?></td>
+                        <td><?php echo esc_html($locality); ?></td>
+                        <td>
+                            <?php if ($is_valid) : ?>
+                                <span class="status-badge status-pass">PASS</span>
+                            <?php else : ?>
+                                <span class="status-badge status-fail">FAIL</span>
+                                <div class="bayut-fix-note"><?php echo esc_html($issue_msg); ?></div>
+                            <?php endif; ?>
+                        </td>
                     </tr>
-                <?php endif; ?>
+                <?php endwhile; ?>
             </tbody>
         </table>
     </div>
     <?php
+    wp_reset_postdata();
     return ob_get_clean();
 }
+add_shortcode('bayut_audit_portal', 'br_render_bayut_audit_page');
