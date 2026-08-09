@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
- * Description: Displays Bayut property audit table with status checks and location details.
- * Version: 1.3
+ * Plugin Name: Bayut Audit Portal Shortcode
+ * Description: Parses XML feed dynamically and displays Bayut property audit table.
+ * Version: 1.2
  */
 
 if (!defined('ABSPATH')) {
@@ -24,15 +24,112 @@ $myUpdateChecker->setBranch('master');
 function br_render_bayut_audit_page() {
     ob_start();
 
-    // Query 'property' custom post type (Houzez default)
-    $args = array(
-        'post_type'      => 'property',
-        'posts_per_page' => -1,
-        'post_status'    => 'publish',
-    );
+    // ------------------------------------------------------------------
+    // Option A: If reading directly from an XML string or file path/URL
+    // Replace $xml_data with file_get_contents('YOUR_XML_URL_OR_PATH') if needed.
+    // ------------------------------------------------------------------
+    $xml_data = '<?xml version="1.0" encoding="UTF-8"?>
+    <Properties>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20885 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ 1-Bedroom w/ balcony | High Floor | Vibrant Living ]]></Property_Title>
+            <City><![CDATA[ Abu Dhabi ]]></City>
+            <Locality><![CDATA[ Muheira ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20878 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Family Home ]]></Property_Type>
+            <Property_Title><![CDATA[ Hot Deal | 4BR Townhouse | Single Row | Premium Location ]]></Property_Title>
+            <City><![CDATA[ Al Reem Island ]]></City>
+            <Locality><![CDATA[ Maysan ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20875 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ Spacious 1-Bedroom | High Floor | Modern layout | Balcony ]]></Property_Title>
+            <City><![CDATA[ Abu Dhabi ]]></City>
+            <Locality><![CDATA[ Al Reem ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20805 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ Fully Furnished | Powder Room | Available Soon | Modern waterfront living ]]></Property_Title>
+            <City><![CDATA[ Yas Island ]]></City>
+            <Locality><![CDATA[ Mayan ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20806 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ Fully Furnished First-Floor Studio with Open Main Road View ]]></Property_Title>
+            <City><![CDATA[ Masdar City ]]></City>
+            <Locality><![CDATA[ The Gate ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20808 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Other Commercial ]]></Property_Type>
+            <Property_Title><![CDATA[ Near to main road | Electricity and water ]]></Property_Title>
+            <City><![CDATA[ Al Ain ]]></City>
+            <Locality><![CDATA[ Al Reem Island ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20812 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ Luxury 1-Bedoom Apartment for Sale in The Row Saadiyat Island | Prime Location ]]></Property_Title>
+            <City><![CDATA[ Saadiyat Island ]]></City>
+            <Locality><![CDATA[ The Row Saadiyat ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+        <Property>
+            <Property_Ref_No><![CDATA[ 20816 ]]></Property_Ref_No>
+            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
+            <Property_Title><![CDATA[ Affordable 1-Bedroom Apartment for Sale in District Reportage | Al Reem Island ]]></Property_Title>
+            <City><![CDATA[ Abu Dhabi ]]></City>
+            <Locality><![CDATA[ Al Reem Island ]]></Locality>
+            <Property_Status><![CDATA[ live ]]></Property_Status>
+        </Property>
+    </Properties>';
 
-    $query = new WP_Query($args);
+    $properties = array();
 
+    // Parse XML
+    if (!empty($xml_data)) {
+        $xml = simplexml_load_string($xml_data, 'SimpleXMLElement', LIBXML_NOCDATA);
+        if ($xml && isset($xml->Property)) {
+            foreach ($xml->Property as $prop) {
+                $ref_no = trim((string)$prop->Property_Ref_No);
+
+                // Try finding matching WP Post by reference number meta key
+                $wp_permalink = '#';
+                $wp_posts = get_posts(array(
+                    'post_type'  => 'property',
+                    'meta_key'   => 'fave_property_id',
+                    'meta_value' => $ref_no,
+                    'posts_per_page' => 1
+                ));
+
+                if (!empty($wp_posts)) {
+                    $wp_permalink = get_permalink($wp_posts[0]->ID);
+                }
+
+                $properties[] = array(
+                    'ref_no'        => $ref_no,
+                    'title'         => trim((string)$prop->Property_Title),
+                    'type'          => trim((string)$prop->Property_Type),
+                    'city'          => trim((string)$prop->City),
+                    'locality'      => trim((string)$prop->Locality),
+                    'status'        => strtolower(trim((string)$prop->Property_Status)) === 'live' ? 'PASS' : 'FAIL',
+                    'permalink'     => $wp_permalink
+                );
+            }
+        }
+    }
     ?>
     <style>
         .bayut-audit-table {
@@ -41,6 +138,7 @@ function br_render_bayut_audit_page() {
             font-family: inherit;
             margin: 20px 0;
             background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .bayut-audit-table th {
             background-color: #1e293b;
@@ -102,66 +200,31 @@ function br_render_bayut_audit_page() {
             </tr>
         </thead>
         <tbody>
-            <?php if ($query->have_posts()) : ?>
-                <?php while ($query->have_posts()) : $query->the_post();
-                    $post_id = get_the_ID();
-
-                    // 1. Get Reference Number (or Post ID if meta isn't set)
-                    $ref_no = get_post_meta($post_id, 'fave_property_id', true);
-                    if (empty($ref_no)) {
-                        $ref_no = $post_id;
-                    }
-
-                    // 2. Get Property Type (Houzez Taxonomy -> Post Meta fallback)
-                    $type_terms = wp_get_post_terms($post_id, 'property_type');
-                    if (!empty($type_terms) && !is_wp_error($type_terms)) {
-                        $property_type = $type_terms[0]->name;
-                    } else {
-                        $property_type = get_post_meta($post_id, 'fave_property_type', true);
-                    }
-                    $property_type = !empty($property_type) ? $property_type : 'Apartment';
-
-                    // 3. Get City (Houzez Taxonomy -> Post Meta fallback)
-                    $city_terms = wp_get_post_terms($post_id, 'property_city');
-                    if (!empty($city_terms) && !is_wp_error($city_terms)) {
-                        $city = $city_terms[0]->name;
-                    } else {
-                        $city = get_post_meta($post_id, 'fave_property_city', true);
-                    }
-                    $city = !empty($city) ? $city : 'N/A';
-
-                    // 4. Get Locality / Area (Houzez Taxonomy -> Post Meta fallback)
-                    $area_terms = wp_get_post_terms($post_id, 'property_area');
-                    if (!empty($area_terms) && !is_wp_error($area_terms)) {
-                        $locality = $area_terms[0]->name;
-                    } else {
-                        $locality = get_post_meta($post_id, 'fave_property_area', true);
-                    }
-                    $locality = !empty($locality) ? $locality : 'N/A';
-
-                    // 5. Determine Audit Status
-                    $status_flag = get_post_meta($post_id, '_bayut_audit_status', true);
-                    $is_pass = ($status_flag !== 'FAIL');
-                ?>
+            <?php if (!empty($properties)) : ?>
+                <?php foreach ($properties as $item) : ?>
                     <tr>
-                        <td><strong><?php echo esc_html($ref_no); ?></strong></td>
+                        <td><strong><?php echo esc_html($item['ref_no']); ?></strong></td>
                         <td>
-                            <a href="<?php the_permalink(); ?>" class="bayut-title-link">
-                                <?php the_title(); ?>
-                            </a>
+                            <?php if ($item['permalink'] !== '#') : ?>
+                                <a href="<?php echo esc_url($item['permalink']); ?>" class="bayut-title-link">
+                                    <?php echo esc_html($item['title']); ?>
+                                </a>
+                            <?php else : ?>
+                                <?php echo esc_html($item['title']); ?>
+                            <?php endif; ?>
                         </td>
-                        <td><?php echo esc_html($property_type); ?></td>
-                        <td><?php echo esc_html($city); ?></td>
-                        <td><?php echo esc_html($locality); ?></td>
+                        <td><?php echo esc_html($item['type']); ?></td>
+                        <td><?php echo esc_html($item['city']); ?></td>
+                        <td><?php echo esc_html($item['locality']); ?></td>
                         <td>
-                            <?php if ($is_pass) : ?>
+                            <?php if ($item['status'] === 'PASS') : ?>
                                 <span class="status-badge-pass">PASS</span>
                             <?php else : ?>
                                 <span class="status-badge-fail">FAIL</span>
                             <?php endif; ?>
                         </td>
                     </tr>
-                <?php endwhile; wp_reset_postdata(); ?>
+                <?php endforeach; ?>
             <?php else : ?>
                 <tr>
                     <td colspan="6" style="text-align: center; padding: 20px;">No properties found.</td>
