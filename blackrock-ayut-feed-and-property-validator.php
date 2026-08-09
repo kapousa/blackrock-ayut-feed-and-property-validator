@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Bayut Audit Portal Shortcode
+ * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
  * Description: Displays Bayut property audit table with status checks and location details.
- * Version: 1.1
+ * Version: 1.3
  */
 
 if (!defined('ABSPATH')) {
