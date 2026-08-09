@@ -83,9 +83,10 @@ function br_render_bayut_audit_page() {
     ob_start();
 
     $args = array(
-        'post_type'      => 'property',
-        'post_status'    => 'publish',
-        'posts_per_page' => -1,
+        'post_type'        => 'property',
+        'post_status'      => 'publish',
+        'posts_per_page'   => -1,
+        'suppress_filters' => true, // Prevents theme & multi-language plugins from altering the query
     );
 
     $query = new WP_Query($args);
