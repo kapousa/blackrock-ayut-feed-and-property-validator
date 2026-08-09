@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: Bayut Audit Portal Shortcode
- * Description: Parses XML feed dynamically and displays Bayut property audit table.
- * Version: 1.4
+ * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
+ * Description: Parses live XML feed dynamically and displays Bayut property audit table.
+ * Version: 1.5
  */
 
 if (!defined('ABSPATH')) {
@@ -16,7 +16,7 @@ use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
 $myUpdateChecker = PucFactory::buildUpdateChecker(
     'https://github.com/kapousa/blackrock-ayut-feed-and-property-validator/',
     __FILE__,
-    'blackrock-ayut-feed-and-property-validator' // your plugin's folder name
+    'blackrock-ayut-feed-and-property-validator'
 );
 
 $myUpdateChecker->setBranch('master');
@@ -24,109 +24,45 @@ $myUpdateChecker->setBranch('master');
 function br_render_bayut_audit_page() {
     ob_start();
 
-    // ------------------------------------------------------------------
-    // Option A: If reading directly from an XML string or file path/URL
-    // Replace $xml_data with file_get_contents('YOUR_XML_URL_OR_PATH') if needed.
-    // ------------------------------------------------------------------
-    $xml_data = '<?xml version="1.0" encoding="UTF-8"?>
-    <Properties>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20885 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ 1-Bedroom w/ balcony | High Floor | Vibrant Living ]]></Property_Title>
-            <City><![CDATA[ Abu Dhabi ]]></City>
-            <Locality><![CDATA[ Muheira ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20878 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Family Home ]]></Property_Type>
-            <Property_Title><![CDATA[ Hot Deal | 4BR Townhouse | Single Row | Premium Location ]]></Property_Title>
-            <City><![CDATA[ Al Reem Island ]]></City>
-            <Locality><![CDATA[ Maysan ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20875 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ Spacious 1-Bedroom | High Floor | Modern layout | Balcony ]]></Property_Title>
-            <City><![CDATA[ Abu Dhabi ]]></City>
-            <Locality><![CDATA[ Al Reem ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20805 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ Fully Furnished | Powder Room | Available Soon | Modern waterfront living ]]></Property_Title>
-            <City><![CDATA[ Yas Island ]]></City>
-            <Locality><![CDATA[ Mayan ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20806 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ Fully Furnished First-Floor Studio with Open Main Road View ]]></Property_Title>
-            <City><![CDATA[ Masdar City ]]></City>
-            <Locality><![CDATA[ The Gate ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20808 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Other Commercial ]]></Property_Type>
-            <Property_Title><![CDATA[ Near to main road | Electricity and water ]]></Property_Title>
-            <City><![CDATA[ Al Ain ]]></City>
-            <Locality><![CDATA[ Al Reem Island ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20812 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ Luxury 1-Bedoom Apartment for Sale in The Row Saadiyat Island | Prime Location ]]></Property_Title>
-            <City><![CDATA[ Saadiyat Island ]]></City>
-            <Locality><![CDATA[ The Row Saadiyat ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-        <Property>
-            <Property_Ref_No><![CDATA[ 20816 ]]></Property_Ref_No>
-            <Property_Type><![CDATA[ Apartment ]]></Property_Type>
-            <Property_Title><![CDATA[ Affordable 1-Bedroom Apartment for Sale in District Reportage | Al Reem Island ]]></Property_Title>
-            <City><![CDATA[ Abu Dhabi ]]></City>
-            <Locality><![CDATA[ Al Reem Island ]]></Locality>
-            <Property_Status><![CDATA[ live ]]></Property_Status>
-        </Property>
-    </Properties>';
+    // Dynamically fetch live feed XML
+    $feed_url = site_url('/bayut-feed.xml');
+    $response = wp_remote_get($feed_url, array('timeout' => 15, 'sslverify' => false));
 
     $properties = array();
 
-    // Parse XML
-    if (!empty($xml_data)) {
-        $xml = simplexml_load_string($xml_data, 'SimpleXMLElement', LIBXML_NOCDATA);
-        if ($xml && isset($xml->Property)) {
-            foreach ($xml->Property as $prop) {
-                $ref_no = trim((string)$prop->Property_Ref_No);
+    if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+        $xml_data = wp_remote_retrieve_body($response);
 
-                // Try finding matching WP Post by reference number meta key
-                $wp_permalink = '#';
-                $wp_posts = get_posts(array(
-                    'post_type'  => 'property',
-                    'meta_key'   => 'fave_property_id',
-                    'meta_value' => $ref_no,
-                    'posts_per_page' => 1
-                ));
+        if (!empty($xml_data)) {
+            $xml = simplexml_load_string($xml_data, 'SimpleXMLElement', LIBXML_NOCDATA);
+            if ($xml && isset($xml->Property)) {
+                foreach ($xml->Property as $prop) {
+                    $ref_no = trim((string)$prop->Property_Ref_No);
 
-                if (!empty($wp_posts)) {
-                    $wp_permalink = get_permalink($wp_posts[0]->ID);
+                    // Search WP Post including pending and draft statuses
+                    $wp_permalink = '#';
+                    $wp_posts = get_posts(array(
+                        'post_type'   => 'property',
+                        'post_status' => array('publish', 'draft', 'pending', 'private', 'future'),
+                        'meta_key'    => 'fave_property_id',
+                        'meta_value'  => $ref_no,
+                        'posts_per_page' => 1
+                    ));
+
+                    if (!empty($wp_posts)) {
+                        $wp_permalink = get_permalink($wp_posts[0]->ID);
+                    }
+
+                    $properties[] = array(
+                        'ref_no'    => $ref_no,
+                        'title'     => trim((string)$prop->Property_Title),
+                        'type'      => trim((string)$prop->Property_Type),
+                        'city'      => trim((string)$prop->City),
+                        'locality'  => trim((string)$prop->Locality),
+                        'status'    => strtolower(trim((string)$prop->Property_Status)) === 'live' ? 'PASS' : 'FAIL',
+                        'permalink' => $wp_permalink
+                    );
                 }
-
-                $properties[] = array(
-                    'ref_no'        => $ref_no,
-                    'title'         => trim((string)$prop->Property_Title),
-                    'type'          => trim((string)$prop->Property_Type),
-                    'city'          => trim((string)$prop->City),
-                    'locality'      => trim((string)$prop->Locality),
-                    'status'        => strtolower(trim((string)$prop->Property_Status)) === 'live' ? 'PASS' : 'FAIL',
-                    'permalink'     => $wp_permalink
-                );
             }
         }
     }
@@ -227,7 +163,7 @@ function br_render_bayut_audit_page() {
                 <?php endforeach; ?>
             <?php else : ?>
                 <tr>
-                    <td colspan="6" style="text-align: center; padding: 20px;">No properties found.</td>
+                    <td colspan="6" style="text-align: center; padding: 20px;">No properties found in feed.</td>
                 </tr>
             <?php endif; ?>
         </tbody>
