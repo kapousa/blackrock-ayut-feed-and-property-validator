@@ -2,7 +2,8 @@
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
  * Description: Parses live XML feed dynamically and displays Bayut property audit table with dashboard navigation and CSV export.
- * Version: 1.6.0
+ * Version: 1.7.0
+ * Author: Black Rock Real Estate
  */
 
 if (!defined('ABSPATH')) {
@@ -34,7 +35,7 @@ function handle_bayut_validator_export() {
         $output = fopen('php://output', 'w');
         fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
-        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'City', 'Locality', 'Bayut Status', 'WP Link'));
+        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'City (Emirate)', 'Locality (City)', 'Sub Locality (Area)', 'Bayut Status', 'Validation Notes', 'WP Link'));
 
         $properties = br_fetch_and_parse_bayut_feed();
         foreach ($properties as $item) {
@@ -44,7 +45,9 @@ function handle_bayut_validator_export() {
                 $item['type'],
                 $item['city'],
                 $item['locality'],
+                $item['sub_locality'],
                 $item['status'],
+                $item['notes'],
                 $item['permalink']
             ));
         }
@@ -54,7 +57,7 @@ function handle_bayut_validator_export() {
     }
 }
 
-// Helper to parse live XML feed
+// Helper to parse live XML feed & validate criteria
 function br_fetch_and_parse_bayut_feed() {
     $feed_url = site_url('/bayut-feed.xml');
     $response = wp_remote_get($feed_url, array('timeout' => 15, 'sslverify' => false));
@@ -71,10 +74,10 @@ function br_fetch_and_parse_bayut_feed() {
 
                     $wp_permalink = '#';
                     $wp_posts = get_posts(array(
-                        'post_type'   => 'property',
-                        'post_status' => array('publish', 'draft', 'pending', 'private', 'future'),
-                        'meta_key'    => 'fave_property_id',
-                        'meta_value'  => $ref_no,
+                        'post_type'      => 'property',
+                        'post_status'    => array('publish', 'draft', 'pending', 'private', 'future'),
+                        'meta_key'       => 'fave_property_id',
+                        'meta_value'     => $ref_no,
                         'posts_per_page' => 1
                     ));
 
@@ -82,14 +85,46 @@ function br_fetch_and_parse_bayut_feed() {
                         $wp_permalink = get_permalink($wp_posts[0]->ID);
                     }
 
+                    // Extract XML Data
+                    $title        = trim((string)$prop->Property_Title);
+                    $type         = trim((string)$prop->Property_Type);
+                    $city         = trim((string)$prop->City);
+                    $locality     = trim((string)$prop->Locality);
+                    $sub_locality = trim((string)$prop->Sub_Locality);
+                    $prop_status  = strtolower(trim((string)$prop->Property_Status));
+                    $permit_no    = trim((string)$prop->Permit_Number);
+                    $price        = floatval(trim((string)$prop->Price));
+                    $agent_phone  = isset($prop->Listing_Agent->Phone) ? trim((string)$prop->Listing_Agent->Phone) : '';
+
+                    // Comprehensive Multi-Check Validation
+                    $notes = array();
+
+                    if ($prop_status !== 'live') {
+                        $notes[] = 'Status: ' . strtoupper($prop_status);
+                    }
+                    if ($price <= 0) {
+                        $notes[] = 'Invalid Price';
+                    }
+                    if (empty($permit_no) || $permit_no === '20260001008241') {
+                        $notes[] = 'Default Permit';
+                    }
+                    if (empty($agent_phone) || $agent_phone === '+971500000000') {
+                        $notes[] = 'Default Agent Phone';
+                    }
+
+                    $status = empty($notes) ? 'PASS' : 'FAIL';
+                    $notes_str = empty($notes) ? 'All Specs Valid' : implode(', ', $notes);
+
                     $properties[] = array(
-                        'ref_no'    => $ref_no,
-                        'title'     => trim((string)$prop->Property_Title),
-                        'type'      => trim((string)$prop->Property_Type),
-                        'city'      => trim((string)$prop->City),
-                        'locality'  => trim((string)$prop->Locality),
-                        'status'    => strtolower(trim((string)$prop->Property_Status)) === 'live' ? 'PASS' : 'FAIL',
-                        'permalink' => $wp_permalink
+                        'ref_no'       => $ref_no,
+                        'title'        => $title,
+                        'type'         => $type,
+                        'city'         => $city,
+                        'locality'     => $locality,
+                        'sub_locality' => $sub_locality,
+                        'status'       => $status,
+                        'notes'        => $notes_str,
+                        'permalink'    => $wp_permalink
                     );
                 }
             }
@@ -160,6 +195,10 @@ function br_render_bayut_audit_page() {
             display: inline-block;
             text-align: center;
         }
+        .audit-notes {
+            font-size: 12px;
+            color: #64748b;
+        }
     </style>
 
     <div class="user-dashboard-right">
@@ -170,7 +209,6 @@ function br_render_bayut_audit_page() {
                         <h2 class="title">Bayut Feed Validator</h2>
                     </div>
                     <div class="float-right">
-                        <!-- Navigation & Export Buttons -->
                         <a href="/user-dashboard-2/" class="btn btn-primary" style="margin-right: 10px;">Back To Dashboard</a>
                         <a href="<?php echo esc_url($export_url); ?>" class="btn btn-success">Export CSV</a>
                     </div>
@@ -185,7 +223,9 @@ function br_render_bayut_audit_page() {
                                 <th>Type</th>
                                 <th>City</th>
                                 <th>Locality</th>
-                                <th>Bayut Status</th>
+                                <th>Sub Locality</th>
+                                <th>Status</th>
+                                <th>Audit Notes</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -205,6 +245,7 @@ function br_render_bayut_audit_page() {
                                         <td><?php echo esc_html($item['type']); ?></td>
                                         <td><?php echo esc_html($item['city']); ?></td>
                                         <td><?php echo esc_html($item['locality']); ?></td>
+                                        <td><?php echo esc_html($item['sub_locality']); ?></td>
                                         <td>
                                             <?php if ($item['status'] === 'PASS') : ?>
                                                 <span class="status-badge-pass">PASS</span>
@@ -212,11 +253,14 @@ function br_render_bayut_audit_page() {
                                                 <span class="status-badge-fail">FAIL</span>
                                             <?php endif; ?>
                                         </td>
+                                        <td>
+                                            <span class="audit-notes"><?php echo esc_html($item['notes']); ?></span>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else : ?>
                                 <tr>
-                                    <td colspan="6" style="text-align: center; padding: 20px;">No properties found in feed.</td>
+                                    <td colspan="8" style="text-align: center; padding: 20px;">No properties found in feed.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
