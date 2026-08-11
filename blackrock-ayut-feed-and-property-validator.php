@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
- * Description: Parses live XML feed dynamically and displays Bayut property audit table with dashboard navigation and CSV export.
- * Version: 1.7.0
+ * Description: Parses live XML feed dynamically and displays Bayut property audit table with agent details, dashboard navigation, and CSV export.
+ * Version: 1.8.0
  * Author: Black Rock Real Estate
  */
 
@@ -35,7 +35,7 @@ function handle_bayut_validator_export() {
         $output = fopen('php://output', 'w');
         fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
-        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'City (Emirate)', 'Locality (City)', 'Sub Locality (Area)', 'Bayut Status', 'Validation Notes', 'WP Link'));
+        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'Agent Name', 'City (Emirate)', 'Locality (City)', 'Sub Locality (Area)', 'Bayut Status', 'Validation Notes', 'WP Link'));
 
         $properties = br_fetch_and_parse_bayut_feed();
         foreach ($properties as $item) {
@@ -43,6 +43,7 @@ function handle_bayut_validator_export() {
                 $item['ref_no'],
                 $item['title'],
                 $item['type'],
+                $item['agent_name'],
                 $item['city'],
                 $item['locality'],
                 $item['sub_locality'],
@@ -94,6 +95,9 @@ function br_fetch_and_parse_bayut_feed() {
                     $prop_status  = strtolower(trim((string)$prop->Property_Status));
                     $permit_no    = trim((string)$prop->Permit_Number);
                     $price        = floatval(trim((string)$prop->Price));
+
+                    // Extract Agent Information
+                    $agent_name   = isset($prop->Listing_Agent->Name) ? trim((string)$prop->Listing_Agent->Name) : 'N/A';
                     $agent_phone  = isset($prop->Listing_Agent->Phone) ? trim((string)$prop->Listing_Agent->Phone) : '';
 
                     // Comprehensive Multi-Check Validation
@@ -119,6 +123,7 @@ function br_fetch_and_parse_bayut_feed() {
                         'ref_no'       => $ref_no,
                         'title'        => $title,
                         'type'         => $type,
+                        'agent_name'   => !empty($agent_name) ? $agent_name : 'Unassigned',
                         'city'         => $city,
                         'locality'     => $locality,
                         'sub_locality' => $sub_locality,
@@ -221,6 +226,7 @@ function br_render_bayut_audit_page() {
                                 <th>Ref No</th>
                                 <th>Property Title</th>
                                 <th>Type</th>
+                                <th>Agent</th>
                                 <th>City</th>
                                 <th>Locality</th>
                                 <th>Sub Locality</th>
@@ -243,6 +249,7 @@ function br_render_bayut_audit_page() {
                                             <?php endif; ?>
                                         </td>
                                         <td><?php echo esc_html($item['type']); ?></td>
+                                        <td><strong><?php echo esc_html($item['agent_name']); ?></strong></td>
                                         <td><?php echo esc_html($item['city']); ?></td>
                                         <td><?php echo esc_html($item['locality']); ?></td>
                                         <td><?php echo esc_html($item['sub_locality']); ?></td>
@@ -260,7 +267,7 @@ function br_render_bayut_audit_page() {
                                 <?php endforeach; ?>
                             <?php else : ?>
                                 <tr>
-                                    <td colspan="8" style="text-align: center; padding: 20px;">No properties found in feed.</td>
+                                    <td colspan="9" style="text-align: center; padding: 20px;">No properties found in feed.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
