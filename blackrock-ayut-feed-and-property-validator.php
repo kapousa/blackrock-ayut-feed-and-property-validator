@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
- * Description: Parses live XML feed dynamically and displays Bayut property audit table with agent details, dashboard navigation, and CSV export.
- * Version: 1.8.0
+ * Description: Parses live XML feed dynamically and displays Bayut property audit table with agent details, domain typo checks, specification validations, and CSV export.
+ * Version: 1.8.2
  * Author: Black Rock Real Estate
  */
 
 if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly
+    exit;
 }
 
 // Initialize Plugin Update Checker from GitHub
@@ -22,7 +22,7 @@ $myUpdateChecker = PucFactory::buildUpdateChecker(
 
 $myUpdateChecker->setBranch('master');
 
-// 1. CSV Export Handler
+// CSV Export Handler
 add_action('template_redirect', 'handle_bayut_validator_export', 1);
 function handle_bayut_validator_export() {
     if (isset($_GET['action']) && $_GET['action'] === 'export_bayut_validator') {
@@ -35,7 +35,7 @@ function handle_bayut_validator_export() {
         $output = fopen('php://output', 'w');
         fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
-        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'Agent Name', 'City (Emirate)', 'Locality (City)', 'Sub Locality (Area)', 'Bayut Status', 'Validation Notes', 'WP Link'));
+        fputcsv($output, array('Ref No', 'Property Title', 'Type', 'Agent Name', 'Agent Email', 'City', 'Locality', 'Sub Locality', 'Bayut Status', 'Validation Notes', 'WP Link'));
 
         $properties = br_fetch_and_parse_bayut_feed();
         foreach ($properties as $item) {
@@ -44,6 +44,7 @@ function handle_bayut_validator_export() {
                 $item['title'],
                 $item['type'],
                 $item['agent_name'],
+                $item['agent_email'],
                 $item['city'],
                 $item['locality'],
                 $item['sub_locality'],
@@ -58,10 +59,10 @@ function handle_bayut_validator_export() {
     }
 }
 
-// Helper to parse live XML feed & validate criteria
+// Fetch and Audit XML Feed Data
 function br_fetch_and_parse_bayut_feed() {
-    $feed_url = site_url('/bayut-feed.xml');
-    $response = wp_remote_get($feed_url, array('timeout' => 15, 'sslverify' => false));
+    $feed_url   = site_url('/bayut-feed.xml');
+    $response   = wp_remote_get($feed_url, array('timeout' => 15, 'sslverify' => false));
     $properties = array();
 
     if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
@@ -86,7 +87,6 @@ function br_fetch_and_parse_bayut_feed() {
                         $wp_permalink = get_permalink($wp_posts[0]->ID);
                     }
 
-                    // Extract XML Data
                     $title        = trim((string)$prop->Property_Title);
                     $type         = trim((string)$prop->Property_Type);
                     $city         = trim((string)$prop->City);
@@ -95,14 +95,18 @@ function br_fetch_and_parse_bayut_feed() {
                     $prop_status  = strtolower(trim((string)$prop->Property_Status));
                     $permit_no    = trim((string)$prop->Permit_Number);
                     $price        = floatval(trim((string)$prop->Price));
+                    $bedrooms     = trim((string)$prop->Bedrooms);
 
-                    // Extract Agent Information
                     $agent_name   = isset($prop->Listing_Agent->Name) ? trim((string)$prop->Listing_Agent->Name) : 'N/A';
+                    $agent_email  = isset($prop->Listing_Agent->Email) ? trim((string)$prop->Listing_Agent->Email) : '';
                     $agent_phone  = isset($prop->Listing_Agent->Phone) ? trim((string)$prop->Listing_Agent->Phone) : '';
 
-                    // Comprehensive Multi-Check Validation
+                    // Diagnostic Audit Rules
                     $notes = array();
 
+                    if (!preg_match('/^[A-Za-z0-9_-]+$/', $ref_no) || preg_match('/bedroom|studio/i', $ref_no)) {
+                        $notes[] = 'Invalid Ref No Format';
+                    }
                     if ($prop_status !== 'live') {
                         $notes[] = 'Status: ' . strtoupper($prop_status);
                     }
@@ -115,6 +119,15 @@ function br_fetch_and_parse_bayut_feed() {
                     if (empty($agent_phone) || $agent_phone === '+971500000000') {
                         $notes[] = 'Default Agent Phone';
                     }
+                    if (stripos($agent_email, 'theblcakrock') !== false) {
+                        $notes[] = 'Agent Email Typo Detected';
+                    }
+                    if (!isset($prop->Images->Image) || count($prop->Images->Image) === 0) {
+                        $notes[] = 'Missing Property Images';
+                    }
+                    if (preg_match('/(\d+)\s*(?:BR|Bed)/i', $title, $m) && $m[1] !== $bedrooms) {
+                        $notes[] = 'Bedroom Count Mismatch with Title';
+                    }
 
                     $status = empty($notes) ? 'PASS' : 'FAIL';
                     $notes_str = empty($notes) ? 'All Specs Valid' : implode(', ', $notes);
@@ -124,6 +137,7 @@ function br_fetch_and_parse_bayut_feed() {
                         'title'        => $title,
                         'type'         => $type,
                         'agent_name'   => !empty($agent_name) ? $agent_name : 'Unassigned',
+                        'agent_email'  => $agent_email,
                         'city'         => $city,
                         'locality'     => $locality,
                         'sub_locality' => $sub_locality,
@@ -138,7 +152,7 @@ function br_fetch_and_parse_bayut_feed() {
     return $properties;
 }
 
-// 2. Render Page
+// Render Audit Page Shortcode
 function br_render_bayut_audit_page() {
     $export_url = add_query_arg(['action' => 'export_bayut_validator'], home_url('/'));
     $properties = br_fetch_and_parse_bayut_feed();
@@ -146,73 +160,22 @@ function br_render_bayut_audit_page() {
     ob_start();
     ?>
     <style>
-        .bayut-audit-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: inherit;
-            margin: 20px 0;
-            background: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        .bayut-audit-table th {
-            background-color: #1e293b;
-            color: #ffffff;
-            text-align: left;
-            padding: 12px 16px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-        .bayut-audit-table td {
-            padding: 14px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 14px;
-            color: #334155;
-            vertical-align: middle;
-        }
-        .bayut-audit-table tr:hover {
-            background-color: #f8fafc;
-        }
-        .bayut-title-link {
-            color: #2563eb;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        .bayut-title-link:hover {
-            text-decoration: underline;
-        }
-        .status-badge-pass {
-            background-color: #dcfce7;
-            color: #15803d;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-weight: 700;
-            font-size: 11px;
-            display: inline-block;
-            text-align: center;
-        }
-        .status-badge-fail {
-            background-color: #fee2e2;
-            color: #b91c1c;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-weight: 700;
-            font-size: 11px;
-            display: inline-block;
-            text-align: center;
-        }
-        .audit-notes {
-            font-size: 12px;
-            color: #64748b;
-        }
+        .bayut-audit-table { width: 100%; border-collapse: collapse; font-family: inherit; margin: 20px 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .bayut-audit-table th { background-color: #1e293b; color: #ffffff; text-align: left; padding: 12px 16px; font-size: 14px; font-weight: 600; }
+        .bayut-audit-table td { padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #334155; vertical-align: middle; }
+        .bayut-audit-table tr:hover { background-color: #f8fafc; }
+        .bayut-title-link { color: #2563eb; text-decoration: none; font-weight: 500; }
+        .bayut-title-link:hover { text-decoration: underline; }
+        .status-badge-pass { background-color: #dcfce7; color: #15803d; padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 11px; display: inline-block; text-align: center; }
+        .status-badge-fail { background-color: #fee2e2; color: #b91c1c; padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 11px; display: inline-block; text-align: center; }
+        .audit-notes { font-size: 12px; color: #64748b; }
     </style>
 
     <div class="user-dashboard-right">
         <div class="dashboard-content-area">
             <div class="dashboard-area">
                 <div class="dashboard-header clearfix" style="margin-bottom: 30px;">
-                    <div class="float-left">
-                        <h2 class="title">Bayut Feed Validator</h2>
-                    </div>
+                    <div class="float-left"><h2 class="title">Bayut Feed Validator</h2></div>
                     <div class="float-right">
                         <a href="/user-dashboard-2/" class="btn btn-primary" style="margin-right: 10px;">Back To Dashboard</a>
                         <a href="<?php echo esc_url($export_url); ?>" class="btn btn-success">Export CSV</a>
@@ -260,9 +223,7 @@ function br_render_bayut_audit_page() {
                                                 <span class="status-badge-fail">FAIL</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td>
-                                            <span class="audit-notes"><?php echo esc_html($item['notes']); ?></span>
-                                        </td>
+                                        <td><span class="audit-notes"><?php echo esc_html($item['notes']); ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else : ?>
@@ -276,11 +237,9 @@ function br_render_bayut_audit_page() {
             </div>
         </div>
     </div>
-
     <?php
     return ob_get_clean();
 }
 
-// Register shortcode and secondary alias
 add_shortcode('bayut_audit_portal', 'br_render_bayut_audit_page');
 add_shortcode('bayut_audit_dashboard', 'br_render_bayut_audit_page');
