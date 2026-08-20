@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
  * Description: Parses live XML feed dynamically and displays Bayut property audit table with agent details, domain typo checks, specification validations, and CSV export.
- * Version: 1.9.2
+ * Version: 1.9.3
  * Author: Black Rock Real Estate
  */
 
@@ -21,6 +21,11 @@ $myUpdateChecker = PucFactory::buildUpdateChecker(
 );
 
 $myUpdateChecker->setBranch('master');
+
+// Authenticate via wp-config constant to keep credentials out of Git
+if (defined('BLACKROCK_GITHUB_TOKEN')) {
+    $myUpdateChecker->setAuthentication(BLACKROCK_GITHUB_TOKEN);
+}
 
 // CSV Export Handler
 add_action('template_redirect', 'handle_bayut_validator_export', 1);
