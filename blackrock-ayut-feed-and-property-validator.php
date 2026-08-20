@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Black Rock - Bayut Audit Portal Shortcode
- * Description: Parses live XML feed dynamically and displays Bayut property audit table with agent details, domain typo checks, specification validations, and CSV export.
- * Version: 1.8.2
+ * Description: Parses live XML feed dynamically and displays Bayut property audit table within the Houzez user dashboard panel.
+ * Version: 1.9.0
  * Author: Black Rock Real Estate
  */
 
@@ -152,15 +152,19 @@ function br_fetch_and_parse_bayut_feed() {
     return $properties;
 }
 
-// Render Audit Page Shortcode
+// Render Audit Page Shortcode inside Houzez Dashboard Layout
 function br_render_bayut_audit_page() {
+    if (!current_user_can('manage_options') && !current_user_can('houzez_manager')) {
+        return '<div class="alert alert-danger">Unauthorized access.</div>';
+    }
+
     $export_url = add_query_arg(['action' => 'export_bayut_validator'], home_url('/'));
     $properties = br_fetch_and_parse_bayut_feed();
 
     ob_start();
     ?>
     <style>
-        .bayut-audit-table { width: 100%; border-collapse: collapse; font-family: inherit; margin: 20px 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .bayut-audit-table { width: 100%; border-collapse: collapse; margin: 20px 0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .bayut-audit-table th { background-color: #1e293b; color: #ffffff; text-align: left; padding: 12px 16px; font-size: 14px; font-weight: 600; }
         .bayut-audit-table td { padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #334155; vertical-align: middle; }
         .bayut-audit-table tr:hover { background-color: #f8fafc; }
@@ -171,69 +175,69 @@ function br_render_bayut_audit_page() {
         .audit-notes { font-size: 12px; color: #64748b; }
     </style>
 
-    <div class="user-dashboard-right">
-        <div class="dashboard-content-area">
-            <div class="dashboard-area">
-                <div class="dashboard-header clearfix" style="margin-bottom: 30px;">
-                    <div class="float-left"><h2 class="title">Bayut Feed Validator</h2></div>
-                    <div class="float-right">
-                        <a href="/user-dashboard-2/" class="btn btn-primary" style="margin-right: 10px;">Back To Dashboard</a>
-                        <a href="<?php echo esc_url($export_url); ?>" class="btn btn-success">Export CSV</a>
-                    </div>
+    <div class="dashboard-content-area">
+        <div class="dashboard-area">
+            <div class="dashboard-header clearfix" style="margin-bottom: 30px;">
+                <div class="float-left">
+                    <h2 class="title">Bayut Feed Validator</h2>
                 </div>
+                <div class="float-right">
+                    <a href="<?php echo esc_url(home_url('/my-properties/')); ?>" class="btn btn-primary" style="margin-right: 10px;">Back To Dashboard</a>
+                    <a href="<?php echo esc_url($export_url); ?>" class="btn btn-success">Export CSV</a>
+                </div>
+            </div>
 
-                <div class="table-responsive">
-                    <table class="bayut-audit-table">
-                        <thead>
-                            <tr>
-                                <th>Ref No</th>
-                                <th>Property Title</th>
-                                <th>Type</th>
-                                <th>Agent</th>
-                                <th>City</th>
-                                <th>Locality</th>
-                                <th>Sub Locality</th>
-                                <th>Status</th>
-                                <th>Audit Notes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (!empty($properties)) : ?>
-                                <?php foreach ($properties as $item) : ?>
-                                    <tr>
-                                        <td><strong><?php echo esc_html($item['ref_no']); ?></strong></td>
-                                        <td>
-                                            <?php if ($item['permalink'] !== '#') : ?>
-                                                <a href="<?php echo esc_url($item['permalink']); ?>" class="bayut-title-link">
-                                                    <?php echo esc_html($item['title']); ?>
-                                                </a>
-                                            <?php else : ?>
-                                                <?php echo esc_html($item['title']); ?>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td><?php echo esc_html($item['type']); ?></td>
-                                        <td><strong><?php echo esc_html($item['agent_name']); ?></strong></td>
-                                        <td><?php echo esc_html($item['city']); ?></td>
-                                        <td><?php echo esc_html($item['locality']); ?></td>
-                                        <td><?php echo esc_html($item['sub_locality']); ?></td>
-                                        <td>
-                                            <?php if ($item['status'] === 'PASS') : ?>
-                                                <span class="status-badge-pass">PASS</span>
-                                            <?php else : ?>
-                                                <span class="status-badge-fail">FAIL</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td><span class="audit-notes"><?php echo esc_html($item['notes']); ?></span></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php else : ?>
+            <div class="table-responsive">
+                <table class="bayut-audit-table">
+                    <thead>
+                        <tr>
+                            <th>Ref No</th>
+                            <th>Property Title</th>
+                            <th>Type</th>
+                            <th>Agent</th>
+                            <th>City</th>
+                            <th>Locality</th>
+                            <th>Sub Locality</th>
+                            <th>Status</th>
+                            <th>Audit Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (!empty($properties)) : ?>
+                            <?php foreach ($properties as $item) : ?>
                                 <tr>
-                                    <td colspan="9" style="text-align: center; padding: 20px;">No properties found in feed.</td>
+                                    <td><strong><?php echo esc_html($item['ref_no']); ?></strong></td>
+                                    <td>
+                                        <?php if ($item['permalink'] !== '#') : ?>
+                                            <a href="<?php echo esc_url($item['permalink']); ?>" class="bayut-title-link" target="_blank">
+                                                <?php echo esc_html($item['title']); ?>
+                                            </a>
+                                        <?php else : ?>
+                                            <?php echo esc_html($item['title']); ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo esc_html($item['type']); ?></td>
+                                    <td><strong><?php echo esc_html($item['agent_name']); ?></strong></td>
+                                    <td><?php echo esc_html($item['city']); ?></td>
+                                    <td><?php echo esc_html($item['locality']); ?></td>
+                                    <td><?php echo esc_html($item['sub_locality']); ?></td>
+                                    <td>
+                                        <?php if ($item['status'] === 'PASS') : ?>
+                                            <span class="status-badge-pass">PASS</span>
+                                        <?php else : ?>
+                                            <span class="status-badge-fail">FAIL</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><span class="audit-notes"><?php echo esc_html($item['notes']); ?></span></td>
                                 </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
+                            <?php endforeach; ?>
+                        <?php else : ?>
+                            <tr>
+                                <td colspan="9" style="text-align: center; padding: 20px;">No properties found in feed.</td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
